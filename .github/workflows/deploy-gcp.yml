@@ -1,0 +1,51 @@
+# ESQUELETO NÃO TESTADO. Desligado até a variável de repositório GCP_DEPLOY_HABILITADO ser "true".
+# Publicação manual, só a partir da main, com aprovação humana no environment "producao".
+# Pré-requisitos GCP (humano, tarefa T12): projeto, APIs, Artifact Registry, conta de serviço,
+# Workload Identity Federation, segredo FIREBASE_WEB_API_KEY no Secret Manager.
+name: Deploy GCP (Cloud Run)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    if: ${{ vars.GCP_DEPLOY_HABILITADO == 'true' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    environment: producao
+    env:
+      PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      REGION: ${{ vars.GCP_REGION }}
+      SERVICO: rpa-validator
+      REPO_AR: rpa-validator
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configurar Docker para o Artifact Registry
+        run: gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+
+      - name: Build e push da imagem
+        run: |
+          IMAGEM="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO_AR}/${SERVICO}:${GITHUB_SHA}"
+          docker build -t "$IMAGEM" .
+          docker push "$IMAGEM"
+          echo "IMAGEM=$IMAGEM" >> "$GITHUB_ENV"
+
+      - name: Deploy no Cloud Run
+        run: |
+          # --allow-unauthenticated NÃO é usado: abrir o serviço ao público é decisão humana.
+          gcloud run deploy "$SERVICO" \
+            --image "$IMAGEM" \
+            --region "$REGION" \
+            --set-secrets "FIREBASE_WEB_API_KEY=FIREBASE_WEB_API_KEY:latest"

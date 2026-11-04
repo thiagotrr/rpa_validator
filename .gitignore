@@ -218,3 +218,52 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+
+# ============================================================
+# Regras do projeto RPA Validator (devem ficar APOS o modelo acima)
+# ============================================================
+# Segredos e ambiente
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*-credenciais*.json
+service-account*.json
+
+# DADOS PESSOAIS REAIS: nunca versionar (ver CLAUDE.md > Seguranca)
+backend/tests/fixtures/docs_reais/
+*.xlsx
+!backend/tests/fixtures/**/*.xlsx
+acessos.txt
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+
+# Front-end
+node_modules/
+frontend/dist/
+backend/static/
+
+# Git worktrees do Superpowers
+.worktrees/
+worktrees/
+
+# Editor / SO
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Claude Code: configuracao pessoal fica fora do git
+.claude/settings.local.json
+CLAUDE.local.md

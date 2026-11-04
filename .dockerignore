@@ -1,0 +1,27 @@
+# Mantém a imagem pequena e sem dados sensíveis
+.git
+.github
+.claude
+.worktrees
+worktrees
+**/__pycache__
+**/*.pyc
+.venv
+venv
+.pytest_cache
+.ruff_cache
+node_modules
+frontend/node_modules
+frontend/dist
+backend/static
+backend/tests
+**/docs_reais
+.env
+.env.*
+*.xlsx
+acessos.txt
+*.md
+CLAUDE.md
+CLAUDE.local.md
+Dockerfile
+.dockerignore

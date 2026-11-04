@@ -1,0 +1,55 @@
+{
+  "model": "claude-sonnet-5-5",
+  "effortLevel": "medium",
+  "availableModels": [
+    "claude-sonnet-5-5"
+  ],
+  "maxEffortLevel": "high",
+  "env": {
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-5-5"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git branch*)",
+      "Bash(git switch*)",
+      "Bash(git checkout -b tarefa/*)",
+      "Bash(git worktree*)",
+      "Bash(git add*)",
+      "Bash(git commit*)",
+      "Bash(git push -u origin tarefa/*)",
+      "Bash(git push origin tarefa/*)",
+      "Bash(gh pr create*)",
+      "Bash(gh pr view*)",
+      "Bash(gh pr list*)",
+      "Bash(gh pr checks*)",
+      "Bash(python -m pytest*)",
+      "Bash(pytest*)",
+      "Bash(ruff*)",
+      "Bash(python -m ruff*)",
+      "Bash(npm test*)",
+      "Bash(npm run build*)",
+      "Bash(npm run lint*)",
+      "Bash(npm ci*)",
+      "Bash(docker build*)"
+    ],
+    "deny": [
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(git push * main*)",
+      "Bash(git push * master*)",
+      "Bash(git reset --hard*)",
+      "Bash(gh pr merge*)",
+      "Bash(gh repo delete*)",
+      "Bash(gcloud *)",
+      "Bash(firebase *)",
+      "Bash(terraform apply*)",
+      "Bash(docker push*)",
+      "Read(./.env)",
+      "Read(./backend/.env)",
+      "Read(**/docs_reais/**)"
+    ]
+  }
+}
