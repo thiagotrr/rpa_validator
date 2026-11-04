@@ -254,9 +254,10 @@ node_modules/
 frontend/dist/
 backend/static/
 
-# Git worktrees do Superpowers
+# Git worktrees e rascunhos do Superpowers
 .worktrees/
 worktrees/
+.superpowers/
 
 # Editor / SO
 .idea/

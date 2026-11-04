@@ -99,6 +99,10 @@ O **plano já existe** (Notion, página do card). Portanto, para cards do kanban
 - Em falha inesperada: `systematic-debugging`.
 - `brainstorming` só para trabalho **fora** do kanban (ideia nova ainda sem card).
 - Não pular a confirmação de que o teste falha **pelo motivo indicado** antes de implementar.
+- **Versão validada:** Superpowers 7.0.x. Se uma skill citada aqui sumir ou mudar de nome após atualização, avise o humano em vez de improvisar.
+- **Modelo em todo dispatch:** o `subagent-driven-development` exige declarar o modelo de cada subagente. Declare sempre `claude-sonnet-5-5` com o esforço do papel (tabela da regra de ouro); nunca Opus ou Fable.
+- **Uma revisão por nível, sem duplicar:** o revisor interno do `subagent-driven-development` revisa **cada tarefa** durante a execução; o agente `revisor` roda **uma única vez por PR**, no final, com esforço alto.
+- **Rascunhos do SDD:** ficam em `.superpowers/` (ignorado pelo git; `git clean -fdx` os apaga). Worktrees ficam em `.worktrees/`.
 
 ## Regras de código
 - Nomes (funções, módulos, scripts, componentes) em **português**.
