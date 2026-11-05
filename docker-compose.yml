@@ -1,0 +1,13 @@
+services:
+  testes:
+    build:
+      context: .
+      target: testes
+    working_dir: /app/backend
+    volumes:
+      - ./backend:/app/backend # código e testes ao vivo; tests/fixtures/docs_reais (fora do git) fica visível aqui
+  emuladores:
+    build: docker/emuladores
+    ports:
+      - "8080:8080" # Firestore
+      - "9099:9099" # Auth
