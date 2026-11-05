@@ -118,7 +118,7 @@ def test_ordem_deterministica():
 
 def test_golden_casos_reais_nova_lima():
     """Layout real: com tolerância 0 aparecem as 2 diferenças de centavos de out/2026; com o padrão (2), nenhuma."""
-    [aba] = ler_planilha(gerar_xlsx(), Configuracao(_env_file=None))
+    [aba] = ler_planilha(gerar_xlsx(), Configuracao(_env_file=None)).abas
     textos = {
         "13915419": t.A_IRRF_BRANCO,
         "14037118": t.A_INSS_COLADO,
