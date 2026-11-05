@@ -2,6 +2,7 @@
 
 import re
 import unicodedata
+from dataclasses import dataclass
 from datetime import date, datetime
 from io import BytesIO
 
@@ -19,6 +20,20 @@ LINHAS_BUSCA_CABECALHO = 20
 
 class ErroPlanilha(ValueError):
     pass
+
+
+@dataclass(frozen=True)
+class ErroAba:
+    """Aba recusada (ex.: código da empresa vazio). As demais abas do arquivo continuam valendo."""
+
+    aba: str
+    mensagem: str
+
+
+@dataclass(frozen=True)
+class ResultadoPlanilha:
+    abas: list[AbaPlanilha]
+    erros: list[ErroAba]
 
 
 def _rotulo(v: object) -> str:
@@ -146,15 +161,27 @@ def _ler_aba(ws: Worksheet, ws_formulas: Worksheet, cfg: Configuracao) -> AbaPla
     )
 
 
-def ler_planilha(conteudo: bytes, cfg: Configuracao) -> list[AbaPlanilha]:
+def ler_planilha(conteudo: bytes, cfg: Configuracao) -> ResultadoPlanilha:
+    """Erro de uma aba (ErroAba) não derruba as outras; erro do arquivo como um todo levanta ErroPlanilha."""
     try:
         wb = openpyxl.load_workbook(BytesIO(conteudo), data_only=True)
         wb_formulas = openpyxl.load_workbook(BytesIO(conteudo), data_only=False)
     except Exception as e:  # arquivo corrompido / não é xlsx
         raise ErroPlanilha(f"arquivo não é uma planilha .xlsx válida: {e}") from e
 
-    abas = [a for ws in wb.worksheets if (a := _ler_aba(ws, wb_formulas[ws.title], cfg)) is not None]
+    abas: list[AbaPlanilha] = []
+    erros: list[ErroAba] = []
+    for ws in wb.worksheets:
+        try:
+            aba = _ler_aba(ws, wb_formulas[ws.title], cfg)
+        except ErroPlanilha as e:
+            erros.append(ErroAba(ws.title, str(e)))
+            continue
+        if aba is not None:
+            abas.append(aba)
     if not abas:
+        if erros:
+            raise ErroPlanilha("nenhuma aba pôde ser importada: " + " | ".join(e.mensagem for e in erros))
         raise ErroPlanilha(f"nenhuma aba com cabeçalho {cfg.sheet_colunas['numero_rpa']!r} encontrada")
     if len({a.competencia for a in abas}) > 1:
         raise ErroPlanilha("abas com competências diferentes no mesmo arquivo")
@@ -165,4 +192,4 @@ def ler_planilha(conteudo: bytes, cfg: Configuracao) -> list[AbaPlanilha]:
     duplicados = sorted({n for n in numeros if numeros.count(n) > 1})
     if duplicados:
         raise ErroPlanilha(f"número de RPA repetido na planilha: {', '.join(duplicados)}")
-    return abas
+    return ResultadoPlanilha(abas, erros)

@@ -20,21 +20,21 @@ def _salvar(wb) -> bytes:
 
 
 def test_le_aba_unica_com_metadados_de_e1_e2_a2():
-    [aba] = ler_planilha(gerar_xlsx(), CFG)
+    [aba] = ler_planilha(gerar_xlsx(), CFG).abas
     assert (aba.aba, aba.codigo_empresa, aba.competencia) == ("Planilha1", "671", "2026-10")
     assert aba.cnpj == "14.429.795/0015-68"
     assert len(aba.linhas) == len(LINHAS_PADRAO)
 
 
 def test_linha_de_total_e_guardada_como_sem_recibo():
-    [aba] = ler_planilha(gerar_xlsx(), CFG)
+    [aba] = ler_planilha(gerar_xlsx(), CFG).abas
     [total] = aba.linhas_sem_recibo
     assert total.numero_linha == 6 + len(LINHAS_PADRAO)
     assert list(total.conteudo) == ["VERBA 234"]
 
 
 def test_conteudo_completo_da_linha_sem_aritmetica_de_float():
-    [aba] = ler_planilha(gerar_xlsx(), CFG)
+    [aba] = ler_planilha(gerar_xlsx(), CFG).abas
     ln = next(x for x in aba.linhas if x.numero_rpa == "13809297")
     assert ln.numero_linha == 9
     assert ln.conteudo["SEST/SENAT"] == "103.3865"
@@ -43,7 +43,7 @@ def test_conteudo_completo_da_linha_sem_aritmetica_de_float():
 
 
 def test_arredonda_half_up_e_vazio_vale_zero():
-    [aba] = ler_planilha(gerar_xlsx(), CFG)
+    [aba] = ler_planilha(gerar_xlsx(), CFG).abas
     por_rpa = {ln.numero_rpa: ln for ln in aba.linhas}
     assert por_rpa["13809297"].sest_senat == 10339
     assert por_rpa["14070887"].sest_senat == 1723
@@ -62,7 +62,7 @@ def test_colunas_parametrizaveis():
     wb = openpyxl.load_workbook(BytesIO(gerar_xlsx()))
     wb["Planilha1"]["L5"] = "INSS AUTONOMO"
     cfg = CFG.model_copy(update={"sheet_colunas": CFG.sheet_colunas | {"inss": "INSS AUTONOMO"}})
-    assert ler_planilha(_salvar(wb), cfg)[0].linhas[0].inss == 14652
+    assert ler_planilha(_salvar(wb), cfg).abas[0].linhas[0].inss == 14652
     with pytest.raises(ErroPlanilha, match="colunas obrigatórias ausentes: inss"):
         ler_planilha(_salvar(wb), CFG)
 
@@ -71,7 +71,7 @@ def test_celulas_de_identificacao_parametrizaveis():
     wb = openpyxl.load_workbook(BytesIO(gerar_xlsx()))
     wb["Planilha1"]["K3"] = 999
     cfg = CFG.model_copy(update={"sheet_codigo_empresa_cell": "K3"})
-    assert ler_planilha(_salvar(wb), cfg)[0].codigo_empresa == "999"
+    assert ler_planilha(_salvar(wb), cfg).abas[0].codigo_empresa == "999"
 
 
 def test_multiplas_abas_uma_por_empresa():
@@ -81,19 +81,19 @@ def test_multiplas_abas_uma_por_empresa():
             "Outra": ("672", [linha(1, "FULANO X", "15000001", 1000.0, 5.0, 22.0, 0)]),
         }
     )
-    abas = ler_planilha(xlsx, CFG)
+    abas = ler_planilha(xlsx, CFG).abas
     assert [(a.aba, a.codigo_empresa, len(a.linhas)) for a in abas] == [("Nova Lima", "671", 2), ("Outra", "672", 1)]
 
 
 def test_aba_sem_cabecalho_e_ignorada():
     wb = openpyxl.load_workbook(BytesIO(gerar_xlsx()))
     wb.create_sheet("Notas")["A1"] = "rascunho"
-    assert [a.aba for a in ler_planilha(_salvar(wb), CFG)] == ["Planilha1"]
+    assert [a.aba for a in ler_planilha(_salvar(wb), CFG).abas] == ["Planilha1"]
 
 
 def test_data_nascimento_quando_preenchida():
     li = linha(1, "X", "15000001", 1000.0, 5.0, 22.0, 0, nasc=datetime(1985, 4, 5))
-    assert ler_planilha(gerar_xlsx({"P": ("671", [li])}), CFG)[0].linhas[0].data_nascimento == date(1985, 4, 5)
+    assert ler_planilha(gerar_xlsx({"P": ("671", [li])}), CFG).abas[0].linhas[0].data_nascimento == date(1985, 4, 5)
 
 
 def test_erro_rpa_duplicado():
@@ -117,6 +117,30 @@ def test_erro_arquivo_invalido_ou_sem_aba_valida():
         ler_planilha(_salvar(openpyxl.Workbook()), CFG)
 
 
+def test_aba_sem_codigo_da_empresa_e_recusada_e_as_outras_carregam():
+    wb = openpyxl.load_workbook(
+        BytesIO(gerar_xlsx({"Nova Lima": ("671", LINHAS_PADRAO[:2]), "Outra": ("672", LINHAS_PADRAO[2:3])}))
+    )
+    wb["Outra"]["E1"] = None
+    r = ler_planilha(_salvar(wb), CFG)
+    assert [a.aba for a in r.abas] == ["Nova Lima"]
+    assert [e.aba for e in r.erros] == ["Outra"]
+    assert "código da empresa vazio em E1" in r.erros[0].mensagem
+
+
+def test_erro_de_formula_tambem_fica_restrito_a_aba():
+    abas = {"Boa": ("671", LINHAS_PADRAO[:1]), "Ruim": ("672", LINHAS_PADRAO[1:2])}
+    wb = openpyxl.load_workbook(BytesIO(gerar_xlsx(abas)))
+    wb["Ruim"]["L6"] = "=J6*11%"
+    r = ler_planilha(_salvar(wb), CFG)
+    assert [a.aba for a in r.abas] == ["Boa"]
+    assert "fórmula sem valor calculado" in r.erros[0].mensagem
+
+
+def test_sem_erros_a_lista_de_erros_vem_vazia():
+    assert ler_planilha(gerar_xlsx(), CFG).erros == []
+
+
 REAL = os.environ.get("RPA_PLANILHA_REAL")
 
 
@@ -125,7 +149,7 @@ REAL = os.environ.get("RPA_PLANILHA_REAL")
 def test_planilha_real_nova_lima_layout_atual():
     """A amostra de out/2026 ainda usa K3/E3; quando o layout definitivo chegar, troque as células aqui."""
     cfg = CFG.model_copy(update={"sheet_codigo_empresa_cell": "K3", "sheet_cnpj_cell": "E3"})
-    [aba] = ler_planilha(Path(REAL).read_bytes(), cfg)
+    [aba] = ler_planilha(Path(REAL).read_bytes(), cfg).abas
     assert (aba.codigo_empresa, aba.competencia, len(aba.linhas), len(aba.linhas_sem_recibo)) == (
         "671",
         "2026-10",
