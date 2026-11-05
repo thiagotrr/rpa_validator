@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Validação de RPAs — {{ r.competencia }}</title>
+<style>
+  @page { size: A4 landscape; margin: 1.5cm; }
+  body { font-family: Helvetica, Arial, sans-serif; font-size: 10pt; color: #1f2933; }
+  h1 { font-size: 16pt; margin: 0 0 4pt 0; }
+  h2 { font-size: 12pt; margin: 14pt 0 6pt 0; }
+  .meta { color: #52606d; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { border: 1px solid #cbd2d9; padding: 4pt 6pt; text-align: left; }
+  th { background: #e4e7eb; }
+  td.num { text-align: right; }
+</style>
+</head>
+<body>
+<h1>Validação de RPAs — competência {{ r.competencia }}</h1>
+<p class="meta">Gerado em {{ r.gerado_em }} · diferenças de até {{ r.tolerancia_centavos | brl }} são ignoradas</p>
+
+<table>
+  <tr><th>Documentos (RPAs)</th><th>Valor total dos documentos</th><th>Linhas na planilha</th><th>Divergências</th></tr>
+  <tr>
+    <td class="num">{{ r.qtd_documentos }}</td>
+    <td class="num">{{ r.valor_total_documentos | brl }}</td>
+    <td class="num">{{ r.qtd_linhas_referencia }}</td>
+    <td class="num">{{ r.qtd_divergencias }}</td>
+  </tr>
+</table>
+
+<h2>Divergências por campo</h2>
+{% if r.divergencias_por_campo %}
+<table>
+  <tr><th>Campo</th><th>Quantidade</th></tr>
+  {% for campo, qtd in r.divergencias_por_campo.items() %}
+  <tr><td>{{ campo | campo }}</td><td class="num">{{ qtd }}</td></tr>
+  {% endfor %}
+</table>
+{% else %}
+<p>Nenhuma divergência encontrada.</p>
+{% endif %}
+
+<h2>Detalhes</h2>
+{% if r.divergencias %}
+<table>
+  <tr><th>RPA</th><th>Empresa</th><th>Nome</th><th>Campo</th><th>Tipo</th><th>Planilha</th><th>Documento</th></tr>
+  {% for d in r.divergencias %}
+  <tr>
+    <td>{{ d.numero_rpa }}</td><td>{{ d.codigo_empresa or "" }}</td><td>{{ d.nome or "" }}</td>
+    <td>{{ d.campo | campo }}</td><td>{{ d.tipo | tipo }}</td>
+    <td>{{ d.valor_planilha or "" }}</td><td>{{ d.valor_documento or "" }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p>Sem divergências.</p>
+{% endif %}
+</body>
+</html>

@@ -1,0 +1,35 @@
+# Validação de RPAs — competência {{ r.competencia }}
+
+Gerado em: {{ r.gerado_em }}
+
+| Indicador | Valor |
+|---|---|
+| Documentos (RPAs) | {{ r.qtd_documentos }} |
+| Valor total dos documentos | {{ r.valor_total_documentos | brl }} |
+| Linhas na planilha de referência | {{ r.qtd_linhas_referencia }} |
+| Divergências | {{ r.qtd_divergencias }} |
+| Tolerância (diferenças ignoradas até) | {{ r.tolerancia_centavos | brl }} |
+
+## Divergências por campo
+
+{% if r.divergencias_por_campo %}
+| Campo | Quantidade |
+|---|---|
+{% for campo, qtd in r.divergencias_por_campo.items() %}
+| {{ campo | campo }} | {{ qtd }} |
+{% endfor %}
+{% else %}
+Nenhuma divergência encontrada.
+{% endif %}
+
+## Detalhes
+
+{% if r.divergencias %}
+| RPA | Empresa | Nome | Campo | Tipo | Planilha | Documento |
+|---|---|---|---|---|---|---|
+{% for d in r.divergencias %}
+| {{ d.numero_rpa | md }} | {{ d.codigo_empresa | md }} | {{ d.nome | md }} | {{ d.campo | campo }} | {{ d.tipo | tipo }} | {{ d.valor_planilha | md }} | {{ d.valor_documento | md }} |
+{% endfor %}
+{% else %}
+Sem divergências.
+{% endif %}
