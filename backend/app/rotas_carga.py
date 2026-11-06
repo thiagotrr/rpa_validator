@@ -101,7 +101,7 @@ def registrar_rotas_carga(
                 "arquivo": arquivo.filename,
                 "usuario": mascarar_email(usuario),
                 "competencia": r.competencia,
-                "abas": r.abas,
+                "qtd_abas": len(r.abas),
                 "abas_com_erro": len(r.erros_abas),
                 "linhas_substituidas": r.qtd_linhas_substituidas,
             },
@@ -152,7 +152,12 @@ def registrar_rotas_carga(
                 conteudo = ler_upload(arq, cfg, (".doc", ".docx"))
                 rpa = processador(conteudo, nome, competencia, cfg.extraction_mode)
                 del conteudo  # o binário não é guardado em lugar nenhum
-                repositorio.salvar_rpa(rpa, usuario=usuario, agora=momento)
+                try:
+                    repositorio.salvar_rpa(rpa, usuario=usuario, agora=momento)
+                except Exception as e:  # noqa: BLE001 - qualquer falha do repositório: segue o lote
+                    log.error("rpa_falha_ao_gravar", extra={"tipo_erro": type(e).__name__})
+                    resultados.append({"arquivo": nome, "status": "erro", "erro": "falha ao gravar"})
+                    continue
                 resultados.append(
                     {
                         "arquivo": nome,

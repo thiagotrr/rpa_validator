@@ -4,6 +4,7 @@ import os
 from datetime import datetime, timedelta
 
 import httpx
+from firebase_admin import exceptions
 
 from app.autenticacao import CredenciaisInvalidas, ErroProvedorIdentidade, SessaoAcesso, TokenInvalido
 
@@ -59,8 +60,11 @@ class ProvedorFirebase:
         except httpx.HTTPError as e:
             raise ErroProvedorIdentidade(str(e)) from e
         if r.status_code == 200:
-            d = r.json()
-            return SessaoAcesso(d["idToken"], d["refreshToken"], agora + timedelta(seconds=int(d["expiresIn"])))
+            try:
+                d = r.json()
+                return SessaoAcesso(d["idToken"], d["refreshToken"], agora + timedelta(seconds=int(d["expiresIn"])))
+            except (ValueError, KeyError, TypeError) as e:
+                raise ErroProvedorIdentidade("resposta inesperada do login") from e
         codigo = _codigo_erro(r)
         if codigo in ERROS_CREDENCIAL:
             raise CredenciaisInvalidas()
@@ -76,8 +80,11 @@ class ProvedorFirebase:
         except httpx.HTTPError as e:
             raise ErroProvedorIdentidade(str(e)) from e
         if r.status_code == 200:
-            d = r.json()
-            return SessaoAcesso(d["id_token"], d["refresh_token"], agora + timedelta(seconds=int(d["expires_in"])))
+            try:
+                d = r.json()
+                return SessaoAcesso(d["id_token"], d["refresh_token"], agora + timedelta(seconds=int(d["expires_in"])))
+            except (ValueError, KeyError, TypeError) as e:
+                raise ErroProvedorIdentidade("resposta inesperada da renovação") from e
         if r.status_code in (400, 401, 403):
             raise TokenInvalido(_codigo_erro(r))
         raise ErroProvedorIdentidade(_codigo_erro(r))
@@ -88,5 +95,7 @@ class ProvedorFirebase:
             return auth.verify_id_token(id_token, check_revoked=True)
         except auth.CertificateFetchError as e:
             raise ErroProvedorIdentidade(str(e)) from e
-        except (ValueError, auth.InvalidIdTokenError, auth.UserDisabledError) as e:
-            raise TokenInvalido(str(e)) from e
+        except (ValueError, auth.InvalidIdTokenError, auth.UserDisabledError, auth.UserNotFoundError) as e:
+            raise TokenInvalido(str(e)) from e  # inclui usuário apagado com token ainda válido
+        except exceptions.FirebaseError as e:  # falha ao consultar a revogação (rede, serviço)
+            raise ErroProvedorIdentidade(str(e)) from e

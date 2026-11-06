@@ -67,6 +67,14 @@ def validar_token(id_token: str, cfg: Configuracao, provedor: ProvedorIdentidade
     return normalizar_email(dados.get("email", ""))
 
 
+def _proxima_falha(t: TentativasLogin | None, agora: datetime, janela: timedelta, cfg: Configuracao) -> TentativasLogin:
+    expirou = t is None or (agora - t.primeira_falha) > janela or (t.bloqueado_ate and agora >= t.bloqueado_ate)
+    base = TentativasLogin(0, agora, None) if expirou else t
+    falhas = base.falhas + 1
+    bloqueio = agora + janela if falhas >= cfg.login_max_attempts else None
+    return TentativasLogin(falhas, base.primeira_falha, bloqueio)
+
+
 def autenticar(
     email: str, senha: str, cfg: Configuracao, repo: Repositorio, provedor: ProvedorIdentidade, agora: datetime
 ) -> SessaoAcesso:
@@ -80,13 +88,10 @@ def autenticar(
         sessao = provedor.entrar_com_senha(normalizar_email(email), senha, agora)
         validar_token(sessao.id_token, cfg, provedor)  # senha certa mas sem claim = mesma resposta de senha errada
     except (CredenciaisInvalidas, TokenInvalido):
-        expirou = t is None or (agora - t.primeira_falha) > janela or (t.bloqueado_ate and agora >= t.bloqueado_ate)
-        base = TentativasLogin(0, agora, None) if expirou else t
-        falhas = base.falhas + 1
-        bloqueio = agora + janela if falhas >= cfg.login_max_attempts else None
-        repo.salvar_tentativas(chave, TentativasLogin(falhas, base.primeira_falha, bloqueio))
-        if bloqueio:
-            raise LoginBloqueado(bloqueio) from None
+        # contagem atômica: requisições paralelas não podem perder falhas nem passar do limite
+        novo = repo.atualizar_tentativas(chave, lambda atual: _proxima_falha(atual, agora, janela, cfg))
+        if novo.bloqueado_ate:
+            raise LoginBloqueado(novo.bloqueado_ate) from None
         raise CredenciaisInvalidas() from None
 
     repo.limpar_tentativas(chave)

@@ -1,5 +1,7 @@
 """Persistência. Firestore em produção; memória em testes/dev. Datas viram 'AAAA-MM-DD' (Firestore não aceita date)."""
 
+import threading
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, fields
 from datetime import date, datetime
 from typing import Protocol
@@ -142,6 +144,9 @@ class Repositorio(Protocol):
     def numeros_rpas(self, competencia: str) -> set[str]: ...
     def obter_tentativas(self, chave: str) -> TentativasLogin | None: ...
     def salvar_tentativas(self, chave: str, t: TentativasLogin) -> None: ...
+    def atualizar_tentativas(
+        self, chave: str, funcao: Callable[[TentativasLogin | None], TentativasLogin]
+    ) -> TentativasLogin: ...
     def limpar_tentativas(self, chave: str) -> None: ...
 
 
@@ -151,6 +156,7 @@ class RepositorioMemoria:
         self.conteudo: dict[str, dict] = {}
         self.rpas: dict[str, dict] = {}
         self.tentativas: dict[str, TentativasLogin] = {}
+        self._trava_tentativas = threading.Lock()
 
     def substituir_planilha(self, competencia, abas, *, arquivo, usuario, agora):
         """Planilha nova SUBSTITUI a competência inteira: grava a nova e depois apaga o que sobrou da antiga."""
@@ -188,6 +194,13 @@ class RepositorioMemoria:
 
     def salvar_tentativas(self, chave, t):
         self.tentativas[chave] = t
+
+    def atualizar_tentativas(self, chave, funcao):
+        """Ler-alterar-gravar sem perder contagem sob requisições paralelas."""
+        with self._trava_tentativas:
+            novo = funcao(self.tentativas.get(chave))
+            self.tentativas[chave] = novo
+            return novo
 
     def limpar_tentativas(self, chave):
         self.tentativas.pop(chave, None)
@@ -259,6 +272,25 @@ class RepositorioFirestore:
 
     def salvar_tentativas(self, chave, t):
         self.db.collection(COL_TENTATIVAS).document(chave).set(asdict(t))
+
+    def atualizar_tentativas(self, chave, funcao):
+        """Transação do Firestore: leitura e gravação atômicas (a transação é repetida em caso de conflito)."""
+        from google.cloud import firestore
+
+        ref = self.db.collection(COL_TENTATIVAS).document(chave)
+
+        @firestore.transactional
+        def na_transacao(transacao):
+            snap = ref.get(transaction=transacao)
+            atual = None
+            if snap.exists:
+                d = snap.to_dict()
+                atual = TentativasLogin(d["falhas"], d["primeira_falha"], d.get("bloqueado_ate"))
+            novo = funcao(atual)
+            transacao.set(ref, asdict(novo))
+            return novo
+
+        return na_transacao(self.db.transaction(max_attempts=20))  # padrão (5) esgota sob contenção
 
     def limpar_tentativas(self, chave):
         self.db.collection(COL_TENTATIVAS).document(chave).delete()
