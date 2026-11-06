@@ -268,3 +268,6 @@ Thumbs.db
 # Claude Code: configuracao pessoal fica fora do git
 .claude/settings.local.json
 CLAUDE.local.md
+
+# TypeScript (build incremental)
+*.tsbuildinfo
