@@ -1,4 +1,5 @@
 import { useState, type DragEvent } from "react";
+import { IconeEnviar } from "./Icones";
 
 type Props = {
   rotulo: string; // nome acessível do botão de escolha
@@ -51,18 +52,24 @@ export function AreaArquivos({ rotulo, aceita, multiplo, aoEscolher, desabilitad
       onDragLeave={() => setSobre(false)}
       onDrop={soltar}
     >
+      <IconeEnviar tamanho={32} className="area-icone" />
       <p>Arraste {multiplo ? "os arquivos" : "o arquivo"} para cá ou</p>
-      <input
-        type="file"
-        aria-label={rotulo}
-        accept={aceita.join(",")}
-        multiple={multiplo}
-        disabled={desabilitado}
-        onChange={(e) => {
-          receber(e.target.files);
-          e.target.value = ""; // permite escolher o mesmo arquivo de novo
-        }}
-      />
+      <label className={`botao-escolha${desabilitado ? " desabilitado" : ""}`}>
+        <span>{multiplo ? "Escolher arquivos" : "Escolher arquivo"}</span>
+        <input
+          type="file"
+          className="so-leitor-de-tela"
+          aria-label={rotulo}
+          accept={aceita.join(",")}
+          multiple={multiplo}
+          disabled={desabilitado}
+          onChange={(e) => {
+            receber(e.target.files);
+            e.target.value = ""; // permite escolher o mesmo arquivo de novo
+          }}
+        />
+      </label>
+      <p className="meta">Formatos aceitos: {aceita.join(", ")}</p>
       {aviso && <p className="erro" role="alert">{aviso}</p>}
     </div>
   );

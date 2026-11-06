@@ -42,3 +42,14 @@ test("o botão de escolha também funciona", () => {
   fireEvent.change(screen.getByLabelText("RPAs"), { target: { files: [arquivo("a.doc")] } });
   expect(aoEscolher).toHaveBeenCalledTimes(1);
 });
+
+test("mostra o botão 'Escolher arquivos' e a lista de formatos aceitos", () => {
+  render(<AreaArquivos rotulo="RPAs" aceita={[".doc", ".docx"]} multiplo aoEscolher={() => {}} />);
+  expect(screen.getByText("Escolher arquivos")).toBeInTheDocument();
+  expect(screen.getByText(/\.doc, \.docx/)).toBeInTheDocument();
+});
+
+test("no modo único o botão se chama 'Escolher arquivo'", () => {
+  render(<AreaArquivos rotulo="Planilha" aceita={[".xlsx"]} multiplo={false} aoEscolher={() => {}} />);
+  expect(screen.getByText("Escolher arquivo")).toBeInTheDocument();
+});

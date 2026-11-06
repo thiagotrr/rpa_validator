@@ -91,3 +91,14 @@ export const ROTULOS_TIPO: Record<string, string> = {
 
 export const brl = (centavos: number) =>
   (centavos / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+export type EstadoItem = "pendente" | "enviando" | "ok" | "ignorado" | "erro";
+
+/** Um arquivo na lista de envio (planilha ou RPA). */
+export type ItemUpload = {
+  id: string;
+  arquivo: File;
+  estado: EstadoItem;
+  progresso: number; // 0 a 100
+  mensagem?: string;
+};
