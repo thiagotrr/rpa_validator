@@ -109,3 +109,102 @@ test("a verificação envia só os nomes dos arquivos", async () => {
     arquivos: ["RPA - A - 15000001.doc"],
   });
 });
+
+class XhrFalso {
+  static ultimo: XhrFalso;
+  static progresso = { loaded: 50, total: 100 };
+  upload: { onprogress?: (e: unknown) => void } = {};
+  onload?: () => void;
+  onerror?: () => void;
+  onabort?: () => void;
+  status = 200;
+  responseText = JSON.stringify({ competencia: "2026-10", resultados: [] });
+  cabecalhos: Record<string, string> = {};
+  metodo = "";
+  url = "";
+  corpo: unknown;
+  abortado = false;
+  open(metodo: string, url: string) {
+    this.metodo = metodo;
+    this.url = url;
+  }
+  setRequestHeader(k: string, v: string) {
+    this.cabecalhos[k] = v;
+  }
+  getResponseHeader() {
+    return "application/json";
+  }
+  send(corpo: unknown) {
+    XhrFalso.ultimo = this;
+    this.corpo = corpo;
+    queueMicrotask(() => {
+      if (this.abortado) return;
+      this.upload.onprogress?.({ lengthComputable: true, ...XhrFalso.progresso });
+      this.onload?.();
+    });
+  }
+  abort() {
+    this.abortado = true;
+    this.onabort?.();
+  }
+}
+
+test("a planilha com progresso usa XMLHttpRequest, com Bearer, e reporta a fração enviada", async () => {
+  logar();
+  vi.stubGlobal("XMLHttpRequest", XhrFalso);
+  const fetchEspiao = vi.spyOn(globalThis, "fetch");
+  const fracoes: number[] = [];
+  const r = await enviarPlanilha(new File(["x"], "p.xlsx"), "2026-10", undefined, {
+    progresso: (f) => fracoes.push(f),
+  });
+  expect(r.competencia).toBe("2026-10");
+  expect(fetchEspiao).not.toHaveBeenCalled();
+  expect(XhrFalso.ultimo.cabecalhos["authorization"]).toBe("Bearer t");
+  expect(XhrFalso.ultimo.url).toBe("/api/planilhas");
+  expect(fracoes).toContain(0.5);
+  vi.unstubAllGlobals();
+});
+
+test("os RPAs com progresso por arquivo distribuem os bytes enviados na ordem do lote", async () => {
+  logar();
+  vi.stubGlobal("XMLHttpRequest", XhrFalso);
+  const chamadas: [number, number][] = [];
+  const lotes: number[][] = [];
+  await enviarRpas("2026-10", [new File(["xxxx"], "a.doc"), new File(["xxxx"], "b.doc")], {
+    progressoArquivo: (i, f) => chamadas.push([i, f]),
+    aoLote: (_r, inicio, fim) => lotes.push([inicio, fim]),
+  });
+  expect(chamadas).toContainEqual([0, 1]);
+  expect(chamadas).toContainEqual([1, 0]);
+  expect(lotes).toEqual([[0, 2]]);
+  vi.unstubAllGlobals();
+});
+
+test("o envio com progresso pode ser cancelado", async () => {
+  logar();
+  vi.stubGlobal("XMLHttpRequest", XhrFalso);
+  const controle = new AbortController();
+  const promessa = enviarPlanilha(new File(["x"], "p.xlsx"), "2026-10", undefined, {
+    progresso: () => {},
+    sinal: controle.signal,
+  });
+  controle.abort();
+  await expect(promessa).rejects.toMatchObject({ name: "AbortError" });
+  vi.unstubAllGlobals();
+});
+
+test("falha de rede no envio com progresso vira ErroApi legível", async () => {
+  logar();
+  class XhrRede extends XhrFalso {
+    send() {
+      queueMicrotask(() => this.onerror?.());
+    }
+  }
+  vi.stubGlobal("XMLHttpRequest", XhrRede);
+  const erro = await enviarPlanilha(new File(["x"], "p.xlsx"), "2026-10", undefined, { progresso: () => {} }).catch(
+    (e) => e,
+  );
+  expect(erro).toBeInstanceOf(ErroApi);
+  expect(erro.message).toContain("conexão");
+  vi.unstubAllGlobals();
+});

@@ -64,16 +64,51 @@ async function renovarSessao(): Promise<boolean> {
   return renovacaoEmAndamento;
 }
 
-async function requisitar(caminho: string, init: RequestInit = {}, tentouRenovar = false): Promise<Response> {
+type OpcoesEnvio = {
+  /** bytes enviados / total do corpo; quando informado o envio usa XMLHttpRequest (o fetch não reporta progresso de upload) */
+  progresso?: (enviados: number, total: number) => void;
+  sinal?: AbortSignal;
+};
+
+function enviarComProgresso(caminho: string, init: RequestInit, opcoes: OpcoesEnvio): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    const cancelado = () => new DOMException("Envio cancelado.", "AbortError");
+    if (opcoes.sinal?.aborted) return reject(cancelado());
+    const xhr = new XMLHttpRequest();
+    xhr.open(init.method ?? "POST", caminho);
+    new Headers(init.headers).forEach((valor, nome) => xhr.setRequestHeader(nome, valor));
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) opcoes.progresso?.(e.loaded, e.total);
+    };
+    xhr.onload = () =>
+      resolve(
+        new Response(xhr.responseText, {
+          status: xhr.status,
+          headers: { "Content-Type": xhr.getResponseHeader("Content-Type") ?? "application/json" },
+        }),
+      );
+    xhr.onerror = () => reject(new ErroApi(0, "Falha de conexão durante o envio. Tente de novo."));
+    xhr.onabort = () => reject(cancelado());
+    opcoes.sinal?.addEventListener("abort", () => xhr.abort(), { once: true });
+    xhr.send(init.body as XMLHttpRequestBodyInit | null);
+  });
+}
+
+async function requisitar(
+  caminho: string,
+  init: RequestInit = {},
+  tentouRenovar = false,
+  envio?: OpcoesEnvio,
+): Promise<Response> {
   let atual = sessao.obter();
   if (atual && new Date(atual.expira_em).getTime() - Date.now() < MARGEM_RENOVACAO_MS && !tentouRenovar) {
     if (await renovarSessao()) atual = sessao.obter();
   }
   const headers = new Headers(init.headers);
   if (atual) headers.set("Authorization", `Bearer ${atual.id_token}`);
-  const r = await fetch(caminho, { ...init, headers });
+  const r = envio?.progresso ? await enviarComProgresso(caminho, { ...init, headers }, envio) : await fetch(caminho, { ...init, headers });
   if (r.status === 401 && atual) {
-    if (!tentouRenovar && (await renovarSessao())) return requisitar(caminho, init, true);
+    if (!tentouRenovar && (await renovarSessao())) return requisitar(caminho, init, true, envio);
     encerrarSessao();
   }
   if (!r.ok) throw await lerErro(r);
@@ -94,12 +129,19 @@ export async function enviarPlanilha(
   arquivo: File,
   competencia: string,
   prevalece?: Prevalece,
+  opcoes: { progresso?: (fracao: number) => void; sinal?: AbortSignal } = {},
 ): Promise<ResultadoPlanilha> {
   const form = new FormData();
   form.append("arquivo", arquivo);
   form.append("competencia", competencia);
   if (prevalece) form.append("prevalece", prevalece);
-  const r = await requisitar("/api/planilhas", { method: "POST", body: form });
+  const { progresso, sinal } = opcoes;
+  const r = await requisitar(
+    "/api/planilhas",
+    { method: "POST", body: form },
+    false,
+    progresso ? { progresso: (enviados, total) => progresso(total ? enviados / total : 0), sinal } : undefined,
+  );
   return r.json();
 }
 
@@ -120,16 +162,46 @@ export async function verificarEnvioRpas(competencia: string, arquivos: File[]):
 export async function enviarRpas(
   competencia: string,
   arquivos: File[],
-  opcoes: { substituir?: boolean; progresso?: (enviados: number) => void } = {},
+  opcoes: {
+    substituir?: boolean;
+    progresso?: (enviados: number) => void;
+    /** fração (0 a 1) já enviada de cada arquivo; estimada pela ordem e pelo tamanho dos arquivos dentro do lote */
+    progressoArquivo?: (indice: number, fracao: number) => void;
+    /** chamado ao fim de cada lote, com os resultados e o intervalo [inicio, fim) de arquivos */
+    aoLote?: (resultados: ResultadoArquivo[], inicio: number, fim: number) => void;
+    sinal?: AbortSignal;
+  } = {},
 ): Promise<ResultadoArquivo[]> {
   const todos: ResultadoArquivo[] = [];
   for (let i = 0; i < arquivos.length; i += TAMANHO_LOTE) {
+    const lote = arquivos.slice(i, i + TAMANHO_LOTE);
     const form = new FormData();
     form.append("competencia", competencia);
     form.append("substituir", opcoes.substituir ? "true" : "false");
-    arquivos.slice(i, i + TAMANHO_LOTE).forEach((a) => form.append("arquivos", a));
-    const r = await requisitar("/api/rpas", { method: "POST", body: form });
-    todos.push(...(await r.json()).resultados);
+    lote.forEach((a) => form.append("arquivos", a));
+    const { progressoArquivo, sinal } = opcoes;
+    const r = await requisitar(
+      "/api/rpas",
+      { method: "POST", body: form },
+      false,
+      progressoArquivo
+        ? {
+            sinal,
+            progresso: (enviados, total) => {
+              // o corpo leva os arquivos em sequência: distribui os bytes enviados pela ordem e pelo tamanho
+              let restante = total ? (enviados / total) * lote.reduce((s, a) => s + a.size, 0) : 0;
+              lote.forEach((a, j) => {
+                const parte = Math.min(Math.max(restante, 0), a.size);
+                progressoArquivo(i + j, a.size ? parte / a.size : 1);
+                restante -= a.size;
+              });
+            },
+          }
+        : undefined,
+    );
+    const resultados: ResultadoArquivo[] = (await r.json()).resultados;
+    todos.push(...resultados);
+    opcoes.aoLote?.(resultados, i, i + lote.length);
     opcoes.progresso?.(Math.min(i + TAMANHO_LOTE, arquivos.length));
   }
   return todos;
