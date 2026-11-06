@@ -23,6 +23,8 @@ const soltar = () =>
     dataTransfer: { files: [new File(["x"], "Nova Lima.xlsx")] },
   });
 
+const enviar = () => fireEvent.click(screen.getByRole("button", { name: "Enviar planilha" }));
+
 beforeEach(() => {
   vi.mocked(api.obterSituacaoPlanilha).mockResolvedValue({
     competencia: "2026-10",
@@ -53,6 +55,7 @@ test("competência divergente pede confirmação e reenvia com a escolha", async
   const aoCarregar = vi.fn();
   render(<CargaPlanilha aoCarregar={aoCarregar} />);
   soltar();
+  enviar();
   fireEvent.click(await screen.findByRole("button", { name: "Usar a da planilha (2026-10)" }));
   await waitFor(() => expect(aoCarregar).toHaveBeenCalled());
   expect(vi.mocked(api.enviarPlanilha).mock.calls[1][2]).toBe("arquivo");
@@ -66,5 +69,48 @@ test("lista as abas que não foram importadas", async () => {
   });
   render(<CargaPlanilha aoCarregar={() => {}} />);
   soltar();
+  enviar();
   expect(await screen.findByText(/Aba Outra não importada: código da empresa vazio em E1/)).toBeInTheDocument();
+});
+
+test("escolher o arquivo só o coloca na lista; o envio exige o botão", () => {
+  render(<CargaPlanilha aoCarregar={() => {}} />);
+  soltar();
+  expect(screen.getByText("Nova Lima.xlsx")).toBeInTheDocument();
+  expect(api.enviarPlanilha).not.toHaveBeenCalled();
+  expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "0");
+});
+
+test("mostra o progresso do envio e fecha em 100% ao concluir", async () => {
+  vi.mocked(api.enviarPlanilha).mockImplementation(async (_a, _c, _p, opcoes) => {
+    opcoes?.progresso?.(0.5);
+    await Promise.resolve();
+    return resultado("2026-10");
+  });
+  render(<CargaPlanilha aoCarregar={() => {}} />);
+  soltar();
+  enviar();
+  expect(await screen.findByText("Enviado")).toBeInTheDocument();
+  expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "100");
+});
+
+test("falha mostra o erro em vermelho e permite tentar de novo", async () => {
+  vi.mocked(api.enviarPlanilha)
+    .mockRejectedValueOnce(new api.ErroApi(0, "Falha de conexão durante o envio."))
+    .mockResolvedValueOnce(resultado("2026-10"));
+  render(<CargaPlanilha aoCarregar={() => {}} />);
+  soltar();
+  enviar();
+  expect(await screen.findByRole("alert")).toHaveTextContent("Falha de conexão");
+  fireEvent.click(screen.getByRole("button", { name: "Tentar de novo: Nova Lima.xlsx" }));
+  expect(await screen.findByText("Enviado")).toBeInTheDocument();
+  expect(api.enviarPlanilha).toHaveBeenCalledTimes(2);
+});
+
+test("remover tira o arquivo da lista e desabilita o envio", () => {
+  render(<CargaPlanilha aoCarregar={() => {}} />);
+  soltar();
+  fireEvent.click(screen.getByRole("button", { name: "Remover Nova Lima.xlsx" }));
+  expect(screen.queryByText("Nova Lima.xlsx")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Enviar planilha" })).toBeDisabled();
 });

@@ -73,3 +73,69 @@ test("RPAs já existentes: por padrão são ignorados; a caixa pede para substit
   await waitFor(() => expect(api.enviarRpas).toHaveBeenCalled());
   expect(vi.mocked(api.enviarRpas).mock.calls[0][2]).toMatchObject({ substituir: true });
 });
+
+test("os arquivos escolhidos aparecem na lista com o nome e a extensão; remover atualiza a contagem", async () => {
+  vi.mocked(api.verificarEnvioRpas).mockResolvedValue(verificacao());
+  render(<CargaRpas aoCarregar={() => {}} />);
+  escolher("RPA - A - 15000001.doc", "RPA - B - 15000002.docx");
+  expect(await screen.findByText("RPA - A - 15000001.doc")).toBeInTheDocument();
+  expect(screen.getByText("RPA - B - 15000002.docx")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Carregar 2 arquivo(s)" })).toBeEnabled();
+  fireEvent.click(screen.getByRole("button", { name: "Remover RPA - A - 15000001.doc" }));
+  expect(screen.getByRole("button", { name: "Carregar 1 arquivo(s)" })).toBeEnabled();
+  fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+  expect(screen.queryByText("RPA - B - 15000002.docx")).not.toBeInTheDocument();
+});
+
+test("mostra o progresso individual de cada arquivo durante o envio", async () => {
+  vi.mocked(api.verificarEnvioRpas).mockResolvedValue(verificacao());
+  let concluir: (r: import("../tipos").ResultadoArquivo[]) => void = () => {};
+  vi.mocked(api.enviarRpas).mockImplementation(
+    (_c, _arquivos, opcoes) =>
+      new Promise((resolver) => {
+        opcoes?.progressoArquivo?.(0, 1);
+        opcoes?.progressoArquivo?.(1, 0.25);
+        concluir = resolver;
+      }),
+  );
+  render(<CargaRpas aoCarregar={() => {}} />);
+  escolher("a.doc", "b.doc");
+  fireEvent.click(await screen.findByRole("button", { name: "Carregar 2 arquivo(s)" }));
+  const [a, b] = await screen.findAllByRole("progressbar");
+  expect(a).toHaveAttribute("aria-valuenow", "100");
+  expect(b).toHaveAttribute("aria-valuenow", "25");
+  concluir([
+    { arquivo: "a.doc", status: "ok" },
+    { arquivo: "b.doc", status: "ok" },
+  ]);
+  expect(await screen.findAllByText("Enviado")).toHaveLength(2);
+});
+
+test("arquivo com erro no servidor fica em vermelho e só ele é reenviado", async () => {
+  vi.mocked(api.verificarEnvioRpas).mockResolvedValue(verificacao());
+  vi.mocked(api.enviarRpas)
+    .mockResolvedValueOnce([
+      { arquivo: "a.doc", status: "ok" },
+      { arquivo: "b.doc", status: "erro", erro: "Não foi possível ler o documento" },
+    ])
+    .mockResolvedValueOnce([{ arquivo: "b.doc", status: "ok" }]);
+  render(<CargaRpas aoCarregar={() => {}} />);
+  escolher("a.doc", "b.doc");
+  fireEvent.click(await screen.findByRole("button", { name: "Carregar 2 arquivo(s)" }));
+  const alertas = await screen.findAllByRole("alert");
+  expect(alertas.map((x) => x.textContent).join(" ")).toContain("Não foi possível ler o documento");
+  fireEvent.click(screen.getByRole("button", { name: "Tentar de novo: b.doc" }));
+  await waitFor(() => expect(api.enviarRpas).toHaveBeenCalledTimes(2));
+  expect(vi.mocked(api.enviarRpas).mock.calls[1][1].map((f) => f.name)).toEqual(["b.doc"]);
+  expect(await screen.findAllByText("Enviado")).toHaveLength(2);
+});
+
+test("falha de rede marca os arquivos pendentes do envio como falha, sem perder a lista", async () => {
+  vi.mocked(api.verificarEnvioRpas).mockResolvedValue(verificacao());
+  vi.mocked(api.enviarRpas).mockRejectedValue(new Error("Falha de conexão durante o envio."));
+  render(<CargaRpas aoCarregar={() => {}} />);
+  escolher("a.doc");
+  fireEvent.click(await screen.findByRole("button", { name: "Carregar 1 arquivo(s)" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Falha de conexão");
+  expect(screen.getByRole("button", { name: "Tentar de novo: a.doc" })).toBeEnabled();
+});

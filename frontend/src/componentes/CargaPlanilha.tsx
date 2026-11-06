@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { competenciaAtual } from "../competencia";
+import { novoId } from "../identificador";
 import { ErroApi, enviarPlanilha, obterSituacaoPlanilha } from "../servicoApi";
-import type { Prevalece, ResultadoPlanilha, SituacaoPlanilha } from "../tipos";
+import type { ItemUpload, Prevalece, ResultadoPlanilha, SituacaoPlanilha } from "../tipos";
 import { AreaArquivos } from "./AreaArquivos";
+import { PainelArquivos } from "./PainelArquivos";
 import { SeletorCompetencia } from "./SeletorCompetencia";
 
 type Divergente = { arquivo: File; competencia_arquivo: string; competencia_informada: string };
@@ -11,9 +13,12 @@ export function CargaPlanilha({ aoCarregar }: { aoCarregar: () => void }) {
   const [competencia, setCompetencia] = useState(competenciaAtual);
   const [situacao, setSituacao] = useState<SituacaoPlanilha | null>(null);
   const [resultado, setResultado] = useState<ResultadoPlanilha | null>(null);
-  const [erro, setErro] = useState<string | null>(null);
+  const [item, setItem] = useState<ItemUpload | null>(null);
   const [pendente, setPendente] = useState<Divergente | null>(null);
   const [enviando, setEnviando] = useState(false);
+  const controle = useRef<AbortController | null>(null);
+
+  const ajustar = (parte: Partial<ItemUpload>) => setItem((atual) => (atual ? { ...atual, ...parte } : atual));
 
   const atualizarSituacao = useCallback(async (c: string) => {
     try {
@@ -28,29 +33,49 @@ export function CargaPlanilha({ aoCarregar }: { aoCarregar: () => void }) {
   }, [competencia, atualizarSituacao]);
 
   async function enviar(arquivo: File, prevalece?: Prevalece) {
-    setErro(null);
     setResultado(null);
     setPendente(null);
     setEnviando(true);
+    ajustar({ estado: "enviando", progresso: 0, mensagem: undefined });
+    controle.current = new AbortController();
     try {
-      const r = await enviarPlanilha(arquivo, competencia, prevalece);
+      const r = await enviarPlanilha(arquivo, competencia, prevalece, {
+        progresso: (f) => ajustar({ progresso: Math.round(f * 100) }),
+        sinal: controle.current.signal,
+      });
+      ajustar({ estado: "ok", progresso: 100 });
       setResultado(r);
       setCompetencia(r.competencia);
       await atualizarSituacao(r.competencia);
       aoCarregar();
     } catch (e) {
+      if ((e as Error).name === "AbortError") return;
       if (e instanceof ErroApi && e.status === 409 && e.detalhe?.codigo === "competencia_divergente") {
+        ajustar({ estado: "pendente", progresso: 0 });
         setPendente({
           arquivo,
           competencia_arquivo: String(e.detalhe.competencia_arquivo),
           competencia_informada: String(e.detalhe.competencia_informada),
         });
       } else {
-        setErro((e as Error).message);
+        ajustar({ estado: "erro", mensagem: (e as Error).message });
       }
     } finally {
       setEnviando(false);
     }
+  }
+
+  function escolher(arquivo: File) {
+    setResultado(null);
+    setPendente(null);
+    setItem({ id: novoId(), arquivo, estado: "pendente", progresso: 0 });
+  }
+
+  function cancelar() {
+    controle.current?.abort();
+    setItem(null);
+    setPendente(null);
+    setEnviando(false);
   }
 
   return (
@@ -68,7 +93,18 @@ export function CargaPlanilha({ aoCarregar }: { aoCarregar: () => void }) {
         aceita={[".xlsx"]}
         multiplo={false}
         desabilitado={enviando}
-        aoEscolher={([arquivo]) => void enviar(arquivo)}
+        aoEscolher={([arquivo]) => escolher(arquivo)}
+      />
+      <PainelArquivos
+        itens={item ? [item] : []}
+        tipo="planilha"
+        rotuloEnviar="Enviar planilha"
+        enviando={enviando}
+        desabilitadoEnviar={enviando || item?.estado === "ok"}
+        aoEnviar={() => item && void enviar(item.arquivo)}
+        aoTentarNovamente={() => item && void enviar(item.arquivo)}
+        aoRemover={cancelar}
+        aoCancelar={cancelar}
       />
       {pendente && (
         <div className="aviso" role="alertdialog" aria-label="Competência divergente">
@@ -85,7 +121,6 @@ export function CargaPlanilha({ aoCarregar }: { aoCarregar: () => void }) {
           <button className="secundario" onClick={() => setPendente(null)}>Cancelar</button>
         </div>
       )}
-      {erro && <p className="erro" role="alert">{erro}</p>}
       {resultado && (
         <div>
           <p>
